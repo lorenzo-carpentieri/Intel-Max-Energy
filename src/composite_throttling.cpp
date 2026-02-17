@@ -6,7 +6,7 @@
 
 
 #define T float
-#define MAX_EXEC_TIME_MS 10000
+#define MAX_EXEC_TIME_MS 6000
 
 sycl::event submit_kernel(
     sycl::queue& q,
@@ -75,11 +75,12 @@ int main(int argc, char* argv[]){
         else {
             throw std::runtime_error("Unknown parameter: " + key);
         }
-        csv_path += "f" + std::to_string(freq0) + "_" + "f" + std::to_string(freq1) + "_k1" + kernel1 + "_k2" + kernel2 + ".csv";
-        // std::visit([](auto&& arg) { std::cout << arg; }, value);
-        std::cout << csv_path << std::endl;
+        
         // std::cout << std::endl;
     }
+    csv_path += "f" + std::to_string(freq0) + "_" + "f" + std::to_string(freq1) + "_k1" + kernel1 + "_k2" + kernel2 + ".csv";
+    // std::visit([](auto&& arg) { std::cout << arg; }, value);
+    std::cout << csv_path << std::endl;
     
 
     utils::logger::Logger log(csv_path);
@@ -98,6 +99,8 @@ int main(int argc, char* argv[]){
     // SYnergy queue for each sub device used to change the frequency
     synergy::queue q_tile0(uncore_freq, core_freq_tile0, tiles[0]);
     synergy::queue q_tile1(uncore_freq, core_freq_tile1, tiles[1]);
+    synergy::queue q_total(dev); // Creaate the synergy queue for the enitre GPU.
+
     // SYCL queue to run the kernel i concurency. 
     // SYnergy queu automatically serialize kernel execution.
     sycl::queue q0(tiles[0], sycl::property_list{sycl::property::queue::enable_profiling{}});
@@ -106,6 +109,8 @@ int main(int argc, char* argv[]){
     std::vector<synergy::device> synergy_devs;
     synergy_devs.push_back(q_tile0.get_synergy_device());
     synergy_devs.push_back(q_tile1.get_synergy_device());
+    synergy_devs.push_back(q_total.get_synergy_device());
+
 
    
     /*******************  Polling frequecny **************/
@@ -120,7 +125,7 @@ int main(int argc, char* argv[]){
     /*************  Start allocate data *****************/
     std::cout << "[INFO]: Start data allocation ... " << std::endl;
 
-    size_t num_el_per_tile = utils::device::compute_num_el_per_tile(tiles[0]);
+    size_t num_el_per_tile = std::numeric_limits<int>::max();
     std::cout << "[INFO]: Num elements per tile: " << num_el_per_tile << std::endl;
     
     // Host data allocation
@@ -159,7 +164,8 @@ int main(int argc, char* argv[]){
 
     
         time_ms_tile0_kern = utils::profiling::get_kernel_time_ms(e0_tile0);
-        N_ITERS_0 += 10000;
+        int increment_iters= MAX_EXEC_TIME_MS / time_ms_tile0_kern;
+        N_ITERS_0 += 1000;
         std::cout << "[INFO]: Kernel time: " << time_ms_tile0_kern << std::endl;
     }
 
@@ -169,14 +175,15 @@ int main(int argc, char* argv[]){
 
     if (kernel2 != "none"){
         while (time_ms_tile1_kern < MAX_EXEC_TIME_MS){
-            e0_tile1 = submit_kernel(q1, kernel2, data_tile1_d, num_el_per_tile, N_ITERS);
+            e0_tile1 = submit_kernel(q1, kernel2, data_tile1_d, num_el_per_tile, N_ITERS_1);
             e0_tile1.wait();
             time_ms_tile1_kern = utils::profiling::get_kernel_time_ms(e0_tile1);
-            N_ITERS_1 += 10000;
+            int increment_iters = MAX_EXEC_TIME_MS / time_ms_tile1_kern;
+            N_ITERS_1 += 1000;
+            std::cout << "[INFO]: Kernel time: " << time_ms_tile1_kern << std::endl;
+            N_ITERS_1 += increment_iters;
         }
     }
-
-
          
     /************** End compute Num iteres  *************/
 
@@ -216,16 +223,29 @@ int main(int argc, char* argv[]){
             time_ms_tile1_kern = utils::profiling::get_kernel_time_ms(e0_tile1);
         std::vector<synergy::power_trace_t> power_traces = power_prof.get_power_execution_data();
         std::vector<synergy::freq_trace_t> freq_traces = power_prof.get_freq_execution_data();
+        std::vector<synergy::temperature_trace_t> temp_traces = power_prof.get_temperature_execution_data();
+
         synergy::power_trace_t power_trace_tile0 = power_traces[0];
         synergy::power_trace_t power_trace_tile1 = power_traces[1];
+        synergy::power_trace_t power_trace_total = power_traces[2];
+
 
         synergy::freq_trace_t freq_trace_tile0 = freq_traces[0];
         synergy::freq_trace_t freq_trace_tile1 = freq_traces[1];
+        synergy::freq_trace_t freq_trace_total = freq_traces[2];
 
-        utils::logger::Logger::ProfilingInfo<T> prof_info_tile0{"h","composite_throttling_tile0", num_el_per_tile, N_ITERS_0, NUM_RUNS, run_id, time_ms_tile0_kern, tile0_gpu_energy, 0, power_trace_tile0  , freq_trace_tile0, utils::data_types::GPUMode::COMPOSITE};
-        utils::logger::Logger::ProfilingInfo<T> prof_info_tile1{"h","composite_throttling_tile1", num_el_per_tile, N_ITERS_1, NUM_RUNS, run_id, time_ms_tile1_kern, tile1_gpu_energy, 0, power_trace_tile1 , freq_trace_tile1, utils::data_types::GPUMode::COMPOSITE};
+        synergy::power_trace_t temp_trace_tile0 = temp_traces[0];
+        synergy::power_trace_t temp_trace_tile1 = temp_traces[1];
+        synergy::power_trace_t temp_trace_total = temp_traces[2];
+
+        utils::logger::Logger::ProfilingInfo<T> prof_info_tile0{"h","composite_throttling_tile0", num_el_per_tile, N_ITERS_0, NUM_RUNS, run_id, time_ms_tile0_kern, tile0_gpu_energy, 0, power_trace_tile0  , freq_trace_tile0, temp_trace_tile0, utils::data_types::GPUMode::COMPOSITE};
+        utils::logger::Logger::ProfilingInfo<T> prof_info_tile1{"h","composite_throttling_tile1", num_el_per_tile, N_ITERS_1, NUM_RUNS, run_id, time_ms_tile1_kern, tile1_gpu_energy, 0, power_trace_tile1 , freq_trace_tile1, temp_trace_tile1, utils::data_types::GPUMode::COMPOSITE};
+        utils::logger::Logger::ProfilingInfo<T> prof_info_gpu{"h","composite_throttling_total", num_el_per_tile, N_ITERS_1, NUM_RUNS, run_id, time_ms_tile1_kern, tile1_gpu_energy, 0, power_trace_total , freq_trace_total, temp_trace_total, utils::data_types::GPUMode::COMPOSITE};
+        
         log.log_result(prof_info_tile0);
         log.log_result(prof_info_tile1);
+        log.log_result(prof_info_gpu);
+
         power_prof.clean();
 
 
