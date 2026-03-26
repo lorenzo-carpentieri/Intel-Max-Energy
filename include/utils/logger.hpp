@@ -74,7 +74,7 @@ namespace utils{
             }
 
             void write_header(std::ofstream& file, const std::vector<CsvField>& extras = {}) const {
-                file << "Hostname,Benchmark,Size,Internal loop iters, Num. Runs, Run. ID,Time [ms],Device energy [mj],Host energy [mj],Power trace,Frequency trace";
+                file << "Hostname,Benchmark,Size,Internal loop iters,Num. Runs,Run. ID,Time [ms],Device energy [mj],Host energy [mj],Power trace,Frequency trace,Temperature trace";
                 // Add custom entry in the .csv file
                 for (const auto& f : extras)
                     file << "," << f.key;
@@ -102,6 +102,8 @@ namespace utils{
                 data_types::energy_t host_energy_mj; // in mj
                 data_types::power_trace_t power_trace;
                 data_types::freq_trace_t freq_trace;
+                data_types::temp_trace_t temp_trace;
+
                 utils::data_types::GPUMode gpu_mode;
             };
 
@@ -145,7 +147,9 @@ namespace utils{
                      << info.device_energy_mj << ","
                      << info.host_energy_mj  << "," // can be 0 to num_ranks or aggregate
                      << utils::data_types::power_trace_to_string(info.power_trace) << ","
-                     << utils::data_types::freq_trace_to_string(info.freq_trace);
+                     << utils::data_types::freq_trace_to_string(info.freq_trace) << ","
+                     << utils::data_types::temp_trace_to_string(info.temp_trace);
+
 
 
                     // Write extra fields if any
